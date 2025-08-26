@@ -1,10 +1,13 @@
 package co.com.techskill.lab2.library.service.dummy;
 
 import co.com.techskill.lab2.library.domain.dto.PetitionDTO;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.reactor.circuitbreaker.operator.CircuitBreakerOperator;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.time.Duration;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
@@ -12,13 +15,14 @@ import java.util.List;
 @Service
 public class PetitionService {
     private final List<PetitionDTO> petitions = new ArrayList<>();
+    CircuitBreaker circuitBreaker = CircuitBreaker.ofDefaults("petitionService");
 
     public PetitionService(){
-        petitions.add(new PetitionDTO("09c09cc8-b", "LEND", 5, "6600ab76-3", LocalDate.parse("2025-07-25")));
-        petitions.add(new PetitionDTO("2f5fca21-b", "RETURN", 7, "12a13228-0", LocalDate.parse("2025-07-25")));
-        petitions.add(new PetitionDTO("4c9ef769-9", "LEND", 7, "51ed516f-a", LocalDate.parse("2025-07-25")));
-        petitions.add(new PetitionDTO("5b2dae36-f", "LEND", 3, "51ed516f-a", LocalDate.parse("2025-07-25")));
-        petitions.add(new PetitionDTO("ad4801f0-9", "RETURN", 5, "51ed516f-a", LocalDate.parse("2025-07-25")));
+        petitions.add(new PetitionDTO("09c09cc8-b", "LEND", 5, "6600ab76-3", LocalDate.parse("2025-08-25")));
+        petitions.add(new PetitionDTO("2f5fca21-b", "RETURN", 7, "12a13228-0", LocalDate.parse("2025-08-24")));
+        petitions.add(new PetitionDTO("4c9ef769-9", "LEND", 7, "51ed516f-a", LocalDate.parse("2025-08-23")));
+        petitions.add(new PetitionDTO("5b2dae36-f", "LEND", 3, "51ed516f-a", LocalDate.parse("2025-08-22")));
+        petitions.add(new PetitionDTO("ad4801f0-9", "RETURN", 5, "51ed516f-a", LocalDate.parse("2025-08-21")));
         petitions.add(new PetitionDTO("9cc825c1-7", "RETURN", 7, "12a13228-0", LocalDate.parse("2025-07-25")));
         petitions.add(new PetitionDTO("d5120259-4", "LEND", 4, "11b553eb-b", LocalDate.parse("2025-07-25")));
         petitions.add(new PetitionDTO("09ef7d35-d", "RETURN", 4, "297c17d8-4", LocalDate.parse("2025-07-25")));
@@ -48,5 +52,20 @@ public class PetitionService {
         );
     }
 
-    //TO - DO: Challenge #1
+    //TO - DO: Challenge #2
+    public Mono<String> getPetitionsNotThreeDays(PetitionDTO petitionDTO){
+        return dummyFindById(petitionDTO.getPetitionId())
+                .switchIfEmpty(Mono.error(new RuntimeException("Petition not found")))
+                .flatMap(petition -> {
+                    if(petition.getSentAt().isBefore(LocalDate.now().minusDays(3))){
+                        return Mono.error(new RuntimeException("Petition sendAt is more than 3 days"));
+                    }
+                    return Mono.just("petition processed: " + petition.getPetitionId());
+                })
+                .timeout(Duration.ofSeconds(5))
+                .transformDeferred(CircuitBreakerOperator.of(circuitBreaker))
+                .retry(1)
+                .onErrorResume(e -> Mono.just("Petition failed: " +
+                        petitionDTO.getPetitionId() + " - " + e.getMessage()));
+    }
 }
